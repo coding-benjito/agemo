@@ -143,6 +143,159 @@ def return_symbolic_result(eq, subs_dict, branchtypes, shape, root=(0,0)):
 			
 	return symbolic_diff
 
+@pytest.mark.taylor_alt
+class Test_taylor_alt:
+	def test_taylor_polynomial(self):
+		denom = np.arange(1,5, dtype=int)
+		var_array = np.array([1.,2.,5.,5.], dtype=float)/10
+		diff_array = (2,2)
+		num_mutypes = 2
+		dot_product = gfdiff.simple_dot_product_setback(denom, var_array, 2)
+		result = gfdiff.taylor_coeff_inverse_polynomial_alt(denom, var_array[-1], diff_array, num_mutypes, dot_product, (4,4))
+		#dot_product2 = gfdiff.simple_dot_product(denom, var_array)
+		#result2 = gfdiff.taylor_coeff_inverse_polynomial(denom, var_array, diff_array, num_mutypes, dot_product2)
+		expected = 0.84375
+		print(result)
+		assert np.isclose(expected, result)
+
+	def test_taylor_polynomial_marginals(self):
+		denom = np.arange(1,5, dtype=int)
+		var_array = np.array([1.,2.,5.,5.], dtype=float)/10
+		diff_array = (2,2)
+		num_mutypes = 2
+		dot_product = gfdiff.simple_dot_product_setback(denom, var_array, 2)
+		result = gfdiff.taylor_coeff_inverse_polynomial_alt(denom, var_array[-1], diff_array, num_mutypes, dot_product, (3,3))
+		dot_product2 = gfdiff.simple_dot_product(denom, var_array)
+		result2 = gfdiff.taylor_coeff_inverse_polynomial(denom, var_array, diff_array, num_mutypes, dot_product2)
+		print(result)
+		expected = 0.84375
+		print(result2)
+		assert np.isclose(expected, result)
+
+	def test_taylor_exponential(self):
+		denom = np.arange(1,5, dtype=int)
+		var_array = np.array([1.,2.,5., 5.], dtype=float)/10
+		diff_array = (2,2)
+		num_mutypes = 2
+		time = 2
+		dot_product = gfdiff.simple_dot_product_setback(var_array, denom, 2)
+		result = gfdiff.taylor_coeff_exponential_alt(-time, denom, dot_product, diff_array, num_mutypes, var_array[-1], (4,4))
+		expected = 0.19322647367184684
+		assert np.isclose(expected, result)
+
+	def test_prod_of_polynomials(self):
+		eq_matrix = np.array([
+			[[1,0,0,0],[1,1,1,1]],
+			[[0,1,0,0],[1,1,1,1]],
+			[[1,0,0,0],[1,0,1,0]]],
+			dtype=np.int8)
+		mutype_shape = (2,2)
+		mutype_shape_with_marg = tuple(i+1 for i in mutype_shape)
+		size = np.prod(mutype_shape)
+		mutype_array = np.array([i for i in np.ndindex(mutype_shape)],dtype=np.uint8)
+		var_array = np.array([0.1,0.2,0.3,0.3], dtype=np.float64)
+		symbolic_var_array = np.array(
+			[sage.all.Rational(0.1), sage.all.Rational(0.2), sage.all.SR.var('m1'), sage.all.SR.var('m2')], 
+			dtype=object
+			)
+		result = gfdiff.compile_non_inverted_eq_alt(eq_matrix, size, mutype_array, mutype_shape_with_marg)(var_array)
+		subsetdict = {0: np.array([0], dtype=np.uint8), 
+					1: np.array([0,1], dtype=np.uint8), 
+					2: np.array([0,2], dtype=np.uint8),
+					3: np.array([0,1,2,3], dtype=np.uint8)}
+		combined_result = gfdiff.product_f(subsetdict, result).reshape(mutype_shape)
+		#from symbolic eq
+		subs_dict = {b:var_array[-1] for b in symbolic_var_array[-2:]}
+		symbolic_eq = np.prod(gflib.equations_from_matrix(eq_matrix, symbolic_var_array))
+		expected = return_symbolic_result(symbolic_eq, subs_dict, symbolic_var_array[-2:], mutype_shape)
+		assert np.allclose(expected, combined_result)
+
+	@pytest.mark.parametrize("eq_matrix, delta_in_nom",
+		[(np.array([
+			[[1,0,0,0],[1,1,1,1]],
+			[[0,1,0,0],[2,1,0,2]],
+			[[1,0,0,0],[1,1,1,0]]],
+			dtype=np.int8), True),
+		(np.array([
+			[[1,0,0,0],[1,1,1,1]],
+			[[1,0,0,0],[2,1,0,2]],
+			[[1,0,0,0],[1,1,1,0]]],
+			dtype=np.int8), False)])
+	def test_diff_inverse_laplace(self, eq_matrix, delta_in_nom):
+		dummy_variable_idx = 1
+		dummy_variable = sage.all.SR.var('E')
+		eq_matrix_no_delta = np.delete(eq_matrix, dummy_variable_idx, axis=2)
+		mutype_shape = (2,2)
+		mutype_shape_with_marg = tuple(i+1 for i in mutype_shape)
+		mutype_array = np.array([i for i in np.ndindex(mutype_shape)],dtype=np.uint8)
+		size = np.prod(mutype_shape)
+		var_array = np.array([0.1,0.3,0.3], dtype=np.float64)
+		symbolic_var_array = np.array(
+			[sage.all.Rational(0.1), dummy_variable, sage.all.SR.var('m1'), sage.all.SR.var('m2')], 
+			dtype=object
+			)
+		time = 1.0
+		subsetdict = subsetdict = {0: np.array([0], dtype=np.uint8), 
+					1: np.array([0,1], dtype=np.uint8), 
+					2: np.array([0,2], dtype=np.uint8),
+					3: np.array([0,1,2,3], dtype=np.uint8)}
+		result = gfdiff.compile_inverted_eq_alt(eq_matrix_no_delta, size, subsetdict, delta_in_nom, mutype_array, mutype_shape_with_marg)(var_array, time).reshape(mutype_shape)
+		print(result)
+		#from symbolic eq
+		subs_dict = {b:var_array[-1] for b in symbolic_var_array[-2:]}
+		subs_dict[sage.all.SR.var('T')] = time
+		symbolic_eq = np.prod(gflib.equations_from_matrix(eq_matrix, symbolic_var_array))
+		inverted_symbolic_eq = linverse.return_inverse_laplace(symbolic_eq, dummy_variable)
+		expected = return_symbolic_result(inverted_symbolic_eq, subs_dict, symbolic_var_array[-2:], mutype_shape)
+		print(expected)
+		assert np.allclose(expected, result)
+
+	@pytest.mark.parametrize("eq_matrix, delta_in_denom, delta_in_nom",
+		[(np.array([
+		[[1,0,0,0],[1,0,1,1]],
+		[[0,1,0,0],[2,1,0,2]],
+		[[1,0,0,0],[1,0,1,0]]],
+		dtype=np.int8), np.array([False, True, False], dtype=bool), True),
+		(np.array([
+			[[1,0,0,0],[1,0,1,1]],
+			[[1,0,0,0],[2,1,0,2]],
+			[[1,0,0,0],[1,0,1,0]]],
+			dtype=np.int8), np.array([False, True, False], dtype=bool), False)
+		])
+	def test_diff_inverse_laplace2(self, eq_matrix, delta_in_denom, delta_in_nom):
+		#eq in which some factors have dummy variable, others don't
+		dummy_variable_idx = 1
+		dummy_variable = sage.all.SR.var('E')
+		eq_matrix_no_delta = np.delete(eq_matrix, dummy_variable_idx, axis=2)
+		mutype_shape = (2,2)
+		mutype_shape_with_marg = (3,3)
+		mutype_array = np.array([i for i in np.ndindex((2,2))],dtype=np.uint8)
+		size = 4
+		var_array = np.array([0.1,0.3,0.3], dtype=np.float64)
+		symbolic_var_array = np.array(
+			[sage.all.Rational(0.1), dummy_variable, sage.all.SR.var('m1'), sage.all.SR.var('m2')], 
+			dtype=object
+			)
+		time = 1.0
+		subsetdict = subsetdict = {0: np.array([0], dtype=np.uint8), 
+					1: np.array([0,1], dtype=np.uint8), 
+					2: np.array([0,2], dtype=np.uint8),
+					3: np.array([0,1,2,3], dtype=np.uint8)}
+		result_inverted_part = gfdiff.compile_inverted_eq_alt(eq_matrix_no_delta[delta_in_denom], size, subsetdict, delta_in_nom, mutype_array, mutype_shape_with_marg)(var_array, time)
+		result_non_inverted_part = gfdiff.compile_non_inverted_eq_alt(eq_matrix_no_delta[~delta_in_denom], size, mutype_array, mutype_shape_with_marg)(var_array)
+		result = gfdiff.product_f(subsetdict, np.vstack((result_inverted_part[None, :], result_non_inverted_part))).reshape(mutype_shape)
+		print('result')
+		print(result)
+		#from symbolic eq
+		subs_dict = {b:var_array[-1] for b in symbolic_var_array[-2:]}
+		subs_dict[sage.all.SR.var('T')] = time
+		symbolic_eq = np.prod(gflib.equations_from_matrix(eq_matrix, symbolic_var_array))
+		inverted_symbolic_eq = linverse.return_inverse_laplace(symbolic_eq, dummy_variable)
+		expected = return_symbolic_result(inverted_symbolic_eq, subs_dict, symbolic_var_array[-2:], mutype_shape)
+		print('expected')
+		print(expected)
+		assert np.allclose(expected, result)
+
 @pytest.mark.collapse
 class Test_collapse_graph:
 	def test_collapse_graph(self):
@@ -225,9 +378,103 @@ class Test_taylor2:
 		result_with_marginals = evaluate_graph_marginals(gfobj, max_k, theta, variable_array, time, False)
 		print(result_with_marginals)
 		exp_result = evaluate_symbolic_equation(gfobj, ordered_mutype_list, max_k, theta, alt_variable_array, time)
+		print(exp_result)
 		assert np.allclose(exp_result, result_with_marginals)
 
 	def test_IM_models(self, get_IM_gfobject):
+		gfobj, parameter_combo, model, adjust_marginals = get_IM_gfobject
+		num_variables = gfobj.num_variables if gfobj.exodus_rate is None else gfobj.num_variables-1
+		max_k = np.array([2,2,2,2], dtype=int)
+		ordered_mutype_list = [sage.all.SR.var(f'm_{idx}') for idx in range(1,len(max_k)+1)]
+		shape = tuple(max_k+1)
+		#variables depending on model: c0, c1, c2, M, E
+		theta, variable_array, time = parameter_combo
+		theta_array = np.full(len(max_k), fill_value=theta)
+		var = np.hstack((variable_array, theta_array))
+		#var_symbolic = np.hstack((variable_array, ordered_mutype_list))
+		#if gfobj.exodus_rate is not None:
+		#	var_sage = np.zeros(gfobj.num_variables, dtype=object)
+		#	var_sage[:-1] = [sage.all.Rational(v) for v in variable_array]
+		#	var_sage[-1] = sage.all.SR('E')
+		#	var_symbolic = np.hstack((var_sage, ordered_mutype_list))
+		#else:
+		#	var_symbolic = np.hstack((variable_array, ordered_mutype_list))
+			
+		result_with_marginals = evaluate_graph_marginals(gfobj, max_k, theta, var, time, adjust_marginals)
+		self.compare_ETPs_model(model, result_with_marginals)
+		
+	def get_gf_no_mutations(self, size):
+		sample_list = [(), ('a',)*size]
+		coalescence_rate_idxs = (0, 1)
+		exodus_rate_idx = 2 
+		exodus_direction = [(1,0),]
+		k_max = {f'm_{idx}':2 for idx in range(1,size)}
+		mutype_labels, max_k = zip(*sorted(k_max.items()))
+		branchtype_dict_mat = {'a'*idx:idx-1 for idx in range(1,size)} 
+		gfobj = gflib.GFMatrixObject(
+			sample_list, 
+			coalescence_rate_idxs, 
+			branchtype_dict_mat,
+			exodus_direction=exodus_direction,
+			exodus_rate=exodus_rate_idx
+			)
+		return gfobj
+
+	#def evaluate_graph_marginals(self, gfobj, k_max, theta, var, time):
+	#	gfEvalObj = gfeval.gfEvaluator(gfobj, k_max)
+	#	return gfEvalObj.evaluate(theta, var, time)
+
+	def compare_ETPs_model(self, model, ETPs):
+		precalc_ETPs = np.squeeze(np.load(f'tests/ETPs/{model}.npy'))
+		#np.save('IM_test.npy', ETPs)
+		assert np.allclose(precalc_ETPs, ETPs)
+
+	@pytest.fixture(
+	scope='class', 
+	params=[
+		([(1,2,0)], sage.all.SR.var('E'), None, None,[0.51, np.array([.1, .2, .3], dtype=np.float64), 1.5], 'DIV_taylor2', False),
+		([(1,2,0)], sage.all.SR.var('E'), None, None,[72/125, np.array([1.0, 15/13, 5/2], dtype=np.float64), 10/3], 'DIV', True),
+		(None, None, [(2,1)], sage.all.SR.var('M'), [0.51, np.array([.1, .2, .3, .4], dtype=np.float64), 1.5], 'MIG_BA_taylor2', False),
+		(None, None, [(2,1)], sage.all.SR.var('M'), [312/625, np.array([0.0, 1.0, 13/6, 134369693800271/73829502088061], dtype=np.float64), 0.0],'MIG_BA', True),
+		([(1,2,0)], sage.all.SR.var('E'), [(2,1)], sage.all.SR.var('M'), [0.51, np.array([1.0, 0.5, 0.9, 0.001], dtype=np.float64), 1.5], 'IM_BA_taylor2', False),
+		([(1,2,0)], sage.all.SR.var('E'), [(1,2)], sage.all.SR.var('M'), [72/125, np.array([1.0, 15/13, 5/2, 21/10], dtype=np.float64), 10/3], 'IM_AB', True),
+		],
+	ids=[
+		'DIV_taylor2',
+		'DIV',
+		'MIG_taylor2',
+		'MIG', 
+		'IM_taylor2',
+		'IM'
+		],
+	)
+	def get_IM_gfobject(self, request):
+		return get_IM_gfobject(request.param)
+
+@pytest.mark.taylor2_alt
+class Test_taylor2alt:
+	@pytest.mark.parametrize('size', [2,3])
+	def test_combining_probabilities(self, size):
+		gfobj = self.get_gf_no_mutations(size)
+		max_k = np.full(size-1,fill_value=2, dtype=int)
+		shape = tuple(max_k+2)
+		variable_array = np.array([1., 2.], dtype=np.float64)
+		theta = .5
+		theta_array = np.full(size-1, fill_value=theta)
+		variable_array = np.hstack((variable_array, theta_array))
+		time = 1.5
+		ordered_mutype_list = [sage.all.SR.var(f'm_{idx}') for idx in range(1,size)]
+		num_mutypes = len(ordered_mutype_list)
+		alt_variable_array = np.hstack((variable_array[:2], np.array(ordered_mutype_list)))
+		mutype_array = np.array([t for t in np.ndindex(shape)], dtype=np.uint8)
+		result_with_marginals = evaluate_graph_marginals_alt(gfobj, max_k, theta, variable_array, time, False, mutype_array)
+		result_with_marginals = result_with_marginals.reshape(shape)
+		print(result_with_marginals)
+		exp_result = evaluate_symbolic_equation(gfobj, ordered_mutype_list, max_k, theta, alt_variable_array, time)
+		print(exp_result)
+		assert np.allclose(exp_result, result_with_marginals)
+
+	def no_test_IM_models(self, get_IM_gfobject):
 		gfobj, parameter_combo, model, adjust_marginals = get_IM_gfobject
 		num_variables = gfobj.num_variables if gfobj.exodus_rate is None else gfobj.num_variables-1
 		max_k = np.array([2,2,2,2], dtype=int)
@@ -329,6 +576,13 @@ def evaluate_graph_marginals(gfobj, k_max, theta, var, time, adjust_marginals):
 	else:
 		return evaluate_no_marginal(gfEvalObj, theta, var, time)
 
+def evaluate_graph_marginals_alt(gfobj, k_max, theta, var, time, adjust_marginals, mutype_array):
+	gfEvalObj = gfeval.gfEvaluator(gfobj, k_max, mutype_array)
+	if adjust_marginals:
+		return gfEvalObj.evaluate(theta, var, time)
+	else:
+		return evaluate_no_marginal_alt(gfEvalObj, theta, var, time)
+
 def evaluate_symbolic_equation(gfobj, ordered_mutype_list, max_k, theta, var, time, sage_inverse=False):
 	theta = sage.all.Rational(theta)
 	rate_dict = {b:theta for b in ordered_mutype_list}
@@ -401,5 +655,11 @@ def chisquare(observed, expected, p_th=0.05, recombination=False, all_sims=False
 def evaluate_no_marginal(gfEvaluatorObj, theta, var, time):
 	results = gfEvaluatorObj.evaluator(var, time)
 	final_result = gfdiff.iterate_eq_graph(gfEvaluatorObj.dependency_sequence, gfEvaluatorObj.eq_graph_array, results, gfEvaluatorObj.subsetdict)
+	theta_multiplier_matrix = gfdiff.taylor_to_probability(gfEvaluatorObj.multiplier_matrix, theta)
+	return theta_multiplier_matrix * final_result
+
+def evaluate_no_marginal_alt(gfEvaluatorObj, theta, var, time):
+	results = gfEvaluatorObj.evaluator(var, time)
+	final_result = gfdiff.iterate_eq_graph_alt(gfEvaluatorObj.dependency_sequence, gfEvaluatorObj.eq_graph_array, results, gfEvaluatorObj.subsetdict)
 	theta_multiplier_matrix = gfdiff.taylor_to_probability(gfEvaluatorObj.multiplier_matrix, theta)
 	return theta_multiplier_matrix * final_result
