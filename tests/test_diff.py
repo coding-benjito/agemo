@@ -454,7 +454,7 @@ class Test_taylor2:
 @pytest.mark.taylor2_alt
 class Test_taylor2alt:
 	@pytest.mark.parametrize('size', [2,3])
-	def test_combining_probabilities(self, size):
+	def no_test_combining_probabilities(self, size):
 		gfobj = self.get_gf_no_mutations(size)
 		max_k = np.full(size-1,fill_value=2, dtype=int)
 		shape = tuple(max_k+2)
@@ -474,26 +474,18 @@ class Test_taylor2alt:
 		print(exp_result)
 		assert np.allclose(exp_result, result_with_marginals)
 
-	def no_test_IM_models(self, get_IM_gfobject):
+	def test_IM_models(self, get_IM_gfobject):
 		gfobj, parameter_combo, model, adjust_marginals = get_IM_gfobject
 		num_variables = gfobj.num_variables if gfobj.exodus_rate is None else gfobj.num_variables-1
 		max_k = np.array([2,2,2,2], dtype=int)
-		ordered_mutype_list = [sage.all.SR.var(f'm_{idx}') for idx in range(1,len(max_k)+1)]
-		shape = tuple(max_k+1)
+		shape = tuple(max_k+2)
 		#variables depending on model: c0, c1, c2, M, E
 		theta, variable_array, time = parameter_combo
 		theta_array = np.full(len(max_k), fill_value=theta)
 		var = np.hstack((variable_array, theta_array))
-		#var_symbolic = np.hstack((variable_array, ordered_mutype_list))
-		#if gfobj.exodus_rate is not None:
-		#	var_sage = np.zeros(gfobj.num_variables, dtype=object)
-		#	var_sage[:-1] = [sage.all.Rational(v) for v in variable_array]
-		#	var_sage[-1] = sage.all.SR('E')
-		#	var_symbolic = np.hstack((var_sage, ordered_mutype_list))
-		#else:
-		#	var_symbolic = np.hstack((variable_array, ordered_mutype_list))
-			
-		result_with_marginals = evaluate_graph_marginals(gfobj, max_k, theta, var, time, adjust_marginals)
+		mutype_array = np.array([t for t in np.ndindex(shape)], dtype=np.uint8)
+		result_with_marginals = evaluate_graph_marginals_alt(gfobj, max_k, theta, var, time, adjust_marginals, mutype_array)
+		result_with_marginals = result_with_marginals.reshape(shape)
 		self.compare_ETPs_model(model, result_with_marginals)
 		
 	def get_gf_no_mutations(self, size):
@@ -521,6 +513,59 @@ class Test_taylor2alt:
 		precalc_ETPs = np.squeeze(np.load(f'tests/ETPs/{model}.npy'))
 		#np.save('IM_test.npy', ETPs)
 		assert np.allclose(precalc_ETPs, ETPs)
+
+	@pytest.fixture(
+	scope='class', 
+	params=[
+		([(1,2,0)], sage.all.SR.var('E'), None, None,[0.51, np.array([.1, .2, .3], dtype=np.float64), 1.5], 'DIV_taylor2', False),
+		([(1,2,0)], sage.all.SR.var('E'), None, None,[72/125, np.array([1.0, 15/13, 5/2], dtype=np.float64), 10/3], 'DIV', True),
+		(None, None, [(2,1)], sage.all.SR.var('M'), [0.51, np.array([.1, .2, .3, .4], dtype=np.float64), 1.5], 'MIG_BA_taylor2', False),
+		(None, None, [(2,1)], sage.all.SR.var('M'), [312/625, np.array([0.0, 1.0, 13/6, 134369693800271/73829502088061], dtype=np.float64), 0.0],'MIG_BA', True),
+		([(1,2,0)], sage.all.SR.var('E'), [(2,1)], sage.all.SR.var('M'), [0.51, np.array([1.0, 0.5, 0.9, 0.001], dtype=np.float64), 1.5], 'IM_BA_taylor2', False),
+		([(1,2,0)], sage.all.SR.var('E'), [(1,2)], sage.all.SR.var('M'), [72/125, np.array([1.0, 15/13, 5/2, 21/10], dtype=np.float64), 10/3], 'IM_AB', True),
+		],
+	ids=[
+		'DIV_taylor2',
+		'DIV',
+		'MIG_taylor2',
+		'MIG', 
+		'IM_taylor2',
+		'IM'
+		],
+	)
+	def get_IM_gfobject(self, request):
+		return get_IM_gfobject(request.param)
+
+@pytest.mark.taylor3_alt
+class Test_taylor3alt:
+
+	def test_IM_models(self, get_IM_gfobject):
+		gfobj, parameter_combo, model, adjust_marginals = get_IM_gfobject
+		num_variables = gfobj.num_variables if gfobj.exodus_rate is None else gfobj.num_variables-1
+		max_k = np.array([2,2,2,2], dtype=int)
+		shape = tuple(max_k+2)
+		#variables depending on model: c0, c1, c2, M, E
+		theta, variable_array, time = parameter_combo
+		theta_array = np.full(len(max_k), fill_value=theta)
+		var = np.hstack((variable_array, theta_array))
+		
+		result_with_marginals = evaluate_graph_marginals_alt(gfobj, max_k, theta, var, time, adjust_marginals, mutype_array)
+		result_with_marginals = result_with_marginals.reshape(shape)
+		self.compare_ETPs_model(model, result_with_marginals)
+
+	def compare_ETPs_model(self, model, ETPs):
+		precalc_ETPs = np.squeeze(np.load(f'tests/ETPs/{model}.npy'))
+		#np.save('IM_test.npy', ETPs)
+		assert np.allclose(precalc_ETPs, ETPs)
+
+	def get_bt_mapping(self):
+		num_samples_per_pop = (2, 2)
+		branchtype_matrix = gfmuts.get_binary_branchtype_array_unphased(num_samples_per_pop)
+		branchtype_matrix = gfmuts.branchtype_matrix[:math.ceil(branchtype_matrix.shape[0]/2)] #unroot
+		compatibility_check = branchtype_compatibility(branchtype_matrix)
+		size = branchtype_matrix.shape[-1]
+		possible_array = np.array(compatibility_depth_first(compatibility_check_unrooted, size), dtype=np.uint8)
+		all_mutypes = gfmuts.distribute_mutations_all_mutypes(possible_array, shape)
 
 	@pytest.fixture(
 	scope='class', 
