@@ -126,9 +126,8 @@ def make_branchtype_dict_idxs(sample_list, phased=False, rooted=False, starting_
 
 ######## initial outline general branchtype implementation ################
 def get_binary_branchtype_array_all(num_samples, phased=False, rooted=False):
-	#make this function general!!!
 	if phased:
-		bta = get_binary_branchtype_array(num_samples) #should be int
+		bta = get_binary_branchtype_array(sum(num_samples)) #should be int
 	else:
 		bta = get_binary_branchtype_array_unphased(num_samples) #should be tuple
 	if not rooted:
@@ -136,9 +135,9 @@ def get_binary_branchtype_array_all(num_samples, phased=False, rooted=False):
 	return bta
 
 def get_binary_branchtype_array(num_samples):
-	all_nums = [[p for p in itertools.combinations(range(dim), i)] for i in range(1,dim)]
+	all_nums = [[p for p in itertools.combinations(range(num_samples), i)] for i in range(1,num_samples)]
 	t = list(flatten(all_nums))
-	x = np.zeros((len(t), dim), dtype=np.uint8)
+	x = np.zeros((len(t), num_samples), dtype=np.uint8)
 	for idx, subt in enumerate(t):
 		x[idx, subt] = 1
 	return x
@@ -318,16 +317,26 @@ class TypeCounter:
 
 	@property
 	def binary_representation(self):
-		return self._binary_representation	
+		return self._binary_representation
+
+	@property
+	def phased(self):
+		return self._phased
+
+	@property
+	def rooted(self):
+		return self._rooted	
+
 
 class BranchTypeCounter(TypeCounter):
 	def __init__(self, sample_configuration, phased=False, rooted=False, branchtype_dict=None):
 		self._sample_configuration = sample_configuration
 		self._samples_per_pop = tuple((len(pop) for pop in sample_configuration))
-		self._labels, self._labels_dict = self.set_labels(phased, rooted) 
-		self._binary_representation = get_binary_branchtype_array_all(num_samples, phased=False, rooted=False)
-		self._compatibility_check = branchtype_compatibility(self.binary_representation)
+		self._labels, self._labels_dict = self._set_labels(phased, rooted) 
+		self._binary_representation = get_binary_branchtype_array_all(self._samples_per_pop, phased, rooted)
 		self._custom_mapping = self.custom_branchtype_dict_mapping(branchtype_dict)
+		self._compatibility_check = branchtype_compatibility(self.binary_representation)
+		self._phased, self._rooted = phased, rooted
 
 	@property
 	def compatibility_check(self):
@@ -338,19 +347,26 @@ class BranchTypeCounter(TypeCounter):
 		return self._custom_mapping
 
 	def custom_branchtype_dict_mapping(self, branchtype_dict):
-		keys_set = set(self.labels)
+		if branchtype_dict is None:
+			return None
+		keys_set = set(self.labels_dict.keys())
 		custom_keys_set = set(branchtype_dict.keys())
-		assert keys_set==custom_keys_set, f'branchtype dict needs to contain all following keys: {', '.join(self.labels)}'
+		assert keys_set==custom_keys_set, f'branchtype dict needs to contain all following keys: {", ".join(self.labels)}'
 		custom_values_set = set(branchtype_dict.values())
 		max_value = max(custom_values_set)
 		assert max_value==len(custom_values_set)-1
 		assert min(custom_values_set)==0
-		return [self._labels[b] for b in sorted(
-					branchtype_dict, key=lambda k: branchtype_dict[k]
-					)
-				]
+		sorted_branchtype_array = sorted(branchtype_dict, key=lambda k: branchtype_dict[k])
+		self._labels_dict = {k:v for k,v in branchtype_dict.items()}
+		temp_labels = ['' for _ in range(len(self._labels))]
+		for branchtype in self._labels:
+			temp_labels[branchtype_dict[branchtype]] = branchtype
+		mapping = [self._labels_dict[b] for b in self._labels]
+		self._labels = temp_labels
 
-	def set_labels(self, phased, rooted):
+		return np.array(mapping, dtype=np.uint8)
+
+	def _set_labels(self, phased, rooted, starting_index=0):
 		#sample_list, phased=False, rooted=False, starting_index=0
 		samples = sorted(gflib.flatten(pop for pop in self.sample_configuration if len(pop)>0))
 		if phased:
@@ -366,29 +382,48 @@ class BranchTypeCounter(TypeCounter):
 			branchtype_dict[all_branchtypes[-idx-1]] = abs(- correction_idx + idx) + starting_index
 		
 		if rooted:
-			return all_branchtypes[:fold], branchtype_dict
-		else:
 			return all_branchtypes, branchtype_dict
+		else:
+			return all_branchtypes[:fold], branchtype_dict
 
-	def sort_all_mutypes(self, mutype_shape):
-		all_mutypes_unsorted = gfmuts.distribute_mutations_all_mutypes(self.observable_mutypes, mutype_shape)
-		ravel_idxs = 0
-		ravel_idxs_to_sort = np.argsort(ravel_idxs)
-		return all_mutypes_unsorted[ravel_idxs_to_sort], ravel_idxs[ravel_idxs_to_sort]
-
-		#remaining_to_do
-		product_subsetdict_marg
-		needs reverse_dict ravel_sorted_mutypes: {81: 0, 9:12, ...}
-
-
-class MutationTypeCounter:
-	def __init__(self, BranchTypeCounter):
-		self.labels = [] #corresponding to the binary representation
-		self.binary_representation = np.array(compatibility_depth_first(compatibility_check_unrooted, num_branchtypes), dtype=np.uint8)
-
+class MutationTypeCounter(TypeCounter):
+	def __init__(self, BranchTypeCounter, mutype_shape):
+		compatibility_check = branchtype_compatibility(BranchTypeCounter.binary_representation)
+		num_branchtypes = BranchTypeCounter.binary_representation.shape[-1]
+		self._binary_representation = np.array(compatibility_depth_first(compatibility_check, num_branchtypes), dtype=np.uint8)
+		
+		if BranchTypeCounter.custom_mapping is not None:
+			#taking care of custom branchtype_dict
+			self._binary_representation = self._binary_representation[:, BranchTypeCounter.custom_mapping]
+		
+		# a lot of copying here, perhaps just link branchtypecounter instead of copying all values?
 		self._sample_configuration = BranchTypeCounter.sample_configuration
 		self._samples_per_pop = BranchTypeCounter.samples_per_pop
 		self._labels = BranchTypeCounter.labels
 		self._labels_dict = BranchTypeCounter.labels_dict 
-		self._binary_representation = all_possible_mutypes
+		self._mutype_shape = mutype_shape
+		self._all_mutypes, self._all_mutypes_ravel = self.sort_all_mutypes(mutype_shape)
+
+	@property
+	def mutype_shape(self):
+		return self._mutype_shape
+
+	@property
+	def all_mutypes(self):
+		return self._all_mutypes
 	
+	@property
+	def all_mutypes_ravel(self):
+		return self._all_mutypes_ravel
+				
+	def sort_all_mutypes(self, mutype_shape):
+		all_mutypes_unsorted = []
+		ravel_idxs = []
+		for mutype in distribute_mutations_all_mutypes(self.binary_representation, mutype_shape):
+			all_mutypes_unsorted.append(mutype)
+			ravel_idxs.append(ravel_multi_index(mutype, mutype_shape))
+		all_mutypes_unsorted = np.array(all_mutypes_unsorted, dtype=np.int64)
+		ravel_idxs = np.array(ravel_idxs, dtype=np.int64)
+		ravel_idxs_to_sort = np.argsort(ravel_idxs)
+		#return sorted multi-index mutypes, and ravelled version
+		return all_mutypes_unsorted[ravel_idxs_to_sort], ravel_idxs[ravel_idxs_to_sort]

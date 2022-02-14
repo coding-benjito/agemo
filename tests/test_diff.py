@@ -540,17 +540,20 @@ class Test_taylor2alt:
 class Test_taylor3alt:
 
 	def test_IM_models(self, get_IM_gfobject):
-		gfobj, parameter_combo, model, adjust_marginals = get_IM_gfobject
-		num_variables = gfobj.num_variables if gfobj.exodus_rate is None else gfobj.num_variables-1
+		gfobj, parameter_combo, model, BranchTypeCounter = get_IM_gfobject
 		max_k = np.array([2,2,2,2], dtype=int)
 		shape = tuple(max_k+2)
+		MutypeCounter = gfmuts.MutationTypeCounter(BranchTypeCounter, shape)
+		num_variables = gfobj.num_variables if gfobj.exodus_rate is None else gfobj.num_variables-1
+		
 		#variables depending on model: c0, c1, c2, M, E
 		theta, variable_array, time = parameter_combo
 		theta_array = np.full(len(max_k), fill_value=theta)
 		var = np.hstack((variable_array, theta_array))
 		
-		result_with_marginals = evaluate_graph_marginals_alt(gfobj, max_k, theta, var, time, adjust_marginals, mutype_array)
-		result_with_marginals = result_with_marginals.reshape(shape)
+		gfEvalObj = gfeval.gfEvaluatorMT(gfobj, MutypeCounter)
+		result = gfEvalObj.evaluate(theta, var, time)
+		assert False
 		self.compare_ETPs_model(model, result_with_marginals)
 
 	def compare_ETPs_model(self, model, ETPs):
@@ -558,36 +561,29 @@ class Test_taylor3alt:
 		#np.save('IM_test.npy', ETPs)
 		assert np.allclose(precalc_ETPs, ETPs)
 
-	def get_bt_mapping(self):
-		num_samples_per_pop = (2, 2)
-		branchtype_matrix = gfmuts.get_binary_branchtype_array_unphased(num_samples_per_pop)
-		branchtype_matrix = gfmuts.branchtype_matrix[:math.ceil(branchtype_matrix.shape[0]/2)] #unroot
-		compatibility_check = branchtype_compatibility(branchtype_matrix)
-		size = branchtype_matrix.shape[-1]
-		possible_array = np.array(compatibility_depth_first(compatibility_check_unrooted, size), dtype=np.uint8)
-		all_mutypes = gfmuts.distribute_mutations_all_mutypes(possible_array, shape)
-
 	@pytest.fixture(
 	scope='class', 
 	params=[
-		([(1,2,0)], sage.all.SR.var('E'), None, None,[0.51, np.array([.1, .2, .3], dtype=np.float64), 1.5], 'DIV_taylor2', False),
-		([(1,2,0)], sage.all.SR.var('E'), None, None,[72/125, np.array([1.0, 15/13, 5/2], dtype=np.float64), 10/3], 'DIV', True),
-		(None, None, [(2,1)], sage.all.SR.var('M'), [0.51, np.array([.1, .2, .3, .4], dtype=np.float64), 1.5], 'MIG_BA_taylor2', False),
-		(None, None, [(2,1)], sage.all.SR.var('M'), [312/625, np.array([0.0, 1.0, 13/6, 134369693800271/73829502088061], dtype=np.float64), 0.0],'MIG_BA', True),
-		([(1,2,0)], sage.all.SR.var('E'), [(2,1)], sage.all.SR.var('M'), [0.51, np.array([1.0, 0.5, 0.9, 0.001], dtype=np.float64), 1.5], 'IM_BA_taylor2', False),
-		([(1,2,0)], sage.all.SR.var('E'), [(1,2)], sage.all.SR.var('M'), [72/125, np.array([1.0, 15/13, 5/2, 21/10], dtype=np.float64), 10/3], 'IM_AB', True),
+		#([(1,2,0)], sage.all.SR.var('E'), None, None,[72/125, np.array([1.0, 15/13, 5/2], dtype=np.float64), 10/3], 'DIV'),
+		(None, None, [(2,1)], sage.all.SR.var('M'), [312/625, np.array([0.0, 1.0, 13/6, 134369693800271/73829502088061], dtype=np.float64), 0.0],'MIG_BA'),
+		#([(1,2,0)], sage.all.SR.var('E'), [(1,2)], sage.all.SR.var('M'), [72/125, np.array([1.0, 15/13, 5/2, 21/10], dtype=np.float64), 10/3], 'IM_AB'),
 		],
 	ids=[
-		'DIV_taylor2',
-		'DIV',
-		'MIG_taylor2',
+		#'DIV',
 		'MIG', 
-		'IM_taylor2',
-		'IM'
+		#'IM'
 		],
 	)
-	def get_IM_gfobject(self, request):
-		return get_IM_gfobject(request.param)
+	def get_IM_gfobject(self, request, get_MT_object):
+		return get_IM_gfobject_BT(request.param, get_MT_object.sample_configuration)
+
+	@pytest.fixture(scope='class')
+	def get_MT_object(self):
+		sample_list = [(),('a','a'),('b','b')]
+		branchtype_dict_mat = gfdev.make_branchtype_dict_idxs_gimble()
+		btc = gfmuts.BranchTypeCounter(sample_list, branchtype_dict=branchtype_dict_mat)
+		shape = (4,4,4,4)
+		return gfmuts.MutationTypeCounter(btc, shape)
 
 
 @pytest.mark.epsilon
@@ -641,38 +637,66 @@ def evaluate_symbolic_equation(gfobj, ordered_mutype_list, max_k, theta, var, ti
 	return result.astype(np.float64)		
 
 def get_IM_gfobject(params):
-		sample_list = [(),('a','a'),('b','b')]
-		ancestral_pop = 0
-		coalescence_rates = (sage.all.SR.var('c0'), sage.all.SR.var('c1'), sage.all.SR.var('c2'))
-		coalescence_rate_idxs = (0, 1, 2)
-		k_max = {'m_1':2, 'm_2':2, 'm_3':2, 'm_4':2}
-		mutype_labels, max_k = zip(*sorted(k_max.items()))
-		#branchtype_dict_mat = gfmuts.make_branchtype_dict_idxs(sample_list, mapping='unrooted', labels=mutype_labels)
-		branchtype_dict_mat = gfdev.make_branchtype_dict_idxs_gimble()
-		exodus_direction, exodus_rate, migration_direction, migration_rate, variable_array, model, adjust_marginals = params
-		
-		variables_array = list(coalescence_rates)
-		migration_rate_idx, exodus_rate_idx = None, None
-		if migration_rate!=None:
-			migration_rate_idx = len(variables_array)
-			variables_array.append(migration_rate)
-		if exodus_rate!=None:
-			exodus_rate_idx = len(variables_array)
-			variables_array.append(exodus_rate)
-		variables_array += [sage.all.SR.var(m) for m in mutype_labels]
-		variables_array = np.array(variables_array, dtype=object)
-		
-		gfobj = gflib.GFMatrixObject(
-			sample_list,
-			coalescence_rate_idxs, 
-			branchtype_dict_mat,
-			exodus_rate=exodus_rate_idx,
-			exodus_direction=exodus_direction,
-			migration_rate=migration_rate_idx,
-			migration_direction=migration_direction
-			)
+	sample_list = [(),('a','a'),('b','b')]
+	ancestral_pop = 0
+	coalescence_rates = (sage.all.SR.var('c0'), sage.all.SR.var('c1'), sage.all.SR.var('c2'))
+	coalescence_rate_idxs = (0, 1, 2)
+	k_max = {'m_1':2, 'm_2':2, 'm_3':2, 'm_4':2}
+	mutype_labels, max_k = zip(*sorted(k_max.items()))
+	#branchtype_dict_mat = gfmuts.make_branchtype_dict_idxs(sample_list, mapping='unrooted', labels=mutype_labels)
+	branchtype_dict_mat = gfdev.make_branchtype_dict_idxs_gimble()
+	exodus_direction, exodus_rate, migration_direction, migration_rate, variable_array, model, adjust_marginals = params
+	
+	variables_array = list(coalescence_rates)
+	migration_rate_idx, exodus_rate_idx = None, None
+	if migration_rate!=None:
+		migration_rate_idx = len(variables_array)
+		variables_array.append(migration_rate)
+	if exodus_rate!=None:
+		exodus_rate_idx = len(variables_array)
+		variables_array.append(exodus_rate)
+	variables_array += [sage.all.SR.var(m) for m in mutype_labels]
+	variables_array = np.array(variables_array, dtype=object)
+	
+	gfobj = gflib.GFMatrixObject(
+		sample_list,
+		coalescence_rate_idxs, 
+		branchtype_dict_mat,
+		exodus_rate=exodus_rate_idx,
+		exodus_direction=exodus_direction,
+		migration_rate=migration_rate_idx,
+		migration_direction=migration_direction
+		)
+	return gfobj, variable_array, model, adjust_marginals
 
-		return gfobj, variable_array, model, adjust_marginals
+def get_IM_gfobject_BT(params, sample_list):	
+	ancestral_pop = 0
+	coalescence_rates = (sage.all.SR.var('c0'), sage.all.SR.var('c1'), sage.all.SR.var('c2'))
+	coalescence_rate_idxs = (0, 1, 2)
+	branchtype_dict_mat = gfdev.make_branchtype_dict_idxs_gimble()
+	exodus_direction, exodus_rate, migration_direction, migration_rate, variable_array, model = params
+	btc = gfmuts.BranchTypeCounter(sample_list, branchtype_dict=branchtype_dict_mat)
+
+	variables_array = list(coalescence_rates)
+	migration_rate_idx, exodus_rate_idx = None, None
+	if migration_rate!=None:
+		migration_rate_idx = len(variables_array)
+		variables_array.append(migration_rate)
+	if exodus_rate!=None:
+		exodus_rate_idx = len(variables_array)
+		variables_array.append(exodus_rate)
+		
+	gfobj = gflib.GFMatrixObject(
+		sample_list,
+		coalescence_rate_idxs, 
+		branchtype_dict_mat,
+		exodus_rate=exodus_rate_idx,
+		exodus_direction=exodus_direction,
+		migration_rate=migration_rate_idx,
+		migration_direction=migration_direction
+		)
+
+	return gfobj, variable_array, model, btc
 
 def chisquare(observed, expected, p_th=0.05, recombination=False, all_sims=False):
 	#expected counts need to be larger than 5 for chisquare
