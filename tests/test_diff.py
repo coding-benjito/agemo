@@ -553,25 +553,26 @@ class Test_taylor3alt:
 		
 		gfEvalObj = gfeval.gfEvaluatorMT(gfobj, MutypeCounter)
 		result = gfEvalObj.evaluate(theta, var, time)
-		assert False
-		self.compare_ETPs_model(model, result_with_marginals)
+		self.compare_ETPs_model(model, result)
 
 	def compare_ETPs_model(self, model, ETPs):
 		precalc_ETPs = np.squeeze(np.load(f'tests/ETPs/{model}.npy'))
-		#np.save('IM_test.npy', ETPs)
+		print(precalc_ETPs)
+		print('--------------')
+		print(ETPs)
 		assert np.allclose(precalc_ETPs, ETPs)
 
 	@pytest.fixture(
 	scope='class', 
 	params=[
-		#([(1,2,0)], sage.all.SR.var('E'), None, None,[72/125, np.array([1.0, 15/13, 5/2], dtype=np.float64), 10/3], 'DIV'),
+		([(1,2,0)], sage.all.SR.var('E'), None, None,[72/125, np.array([1.0, 15/13, 5/2], dtype=np.float64), 10/3], 'DIV'),
 		(None, None, [(2,1)], sage.all.SR.var('M'), [312/625, np.array([0.0, 1.0, 13/6, 134369693800271/73829502088061], dtype=np.float64), 0.0],'MIG_BA'),
-		#([(1,2,0)], sage.all.SR.var('E'), [(1,2)], sage.all.SR.var('M'), [72/125, np.array([1.0, 15/13, 5/2, 21/10], dtype=np.float64), 10/3], 'IM_AB'),
+		([(1,2,0)], sage.all.SR.var('E'), [(1,2)], sage.all.SR.var('M'), [72/125, np.array([1.0, 15/13, 5/2, 21/10], dtype=np.float64), 10/3], 'IM_AB'),
 		],
 	ids=[
-		#'DIV',
+		'DIV',
 		'MIG', 
-		#'IM'
+		'IM'
 		],
 	)
 	def get_IM_gfobject(self, request, get_MT_object):

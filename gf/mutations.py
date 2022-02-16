@@ -85,6 +85,13 @@ def add_marginals_restrict_to(restrict_to, max_k):
 		return sorted(restrict_to)
 	return result
 
+@numba.vectorize([numba.float64(numba.float64, numba.float64)])
+def max_or_zero_subtraction(x,y):
+    if x==0:
+        return np.maximum(0, x-y)
+    else:
+        return x-y
+
 def adjust_marginals_array(array, dimension):
 	new_array = copy.deepcopy(array) #why the deepcopy here?
 	for j in range(dimension):
@@ -94,7 +101,9 @@ def adjust_marginals_array(array, dimension):
 def _adjust_marginals_array(array, dimension, j):
 	idxs = np.roll(range(dimension), j)
 	result = array.transpose(idxs)
-	result[-1] = result[-1] - np.sum(result[:-1], axis=0)
+	#result[-1] = result[-1] - np.sum(result[:-1], axis=0)
+	#line below avoids calculations with marginals for impossible mutation types
+	result[-1] = np.maximum(np.zeros_like(result[-1]), result[-1] - np.sum(result[:-1], axis=0))
 	new_idxs=np.zeros(dimension, dtype=np.uint8)
 	new_idxs[np.transpose(idxs)]=np.arange(dimension, dtype=np.uint8)
 	return result.transpose(new_idxs)
@@ -403,6 +412,8 @@ class MutationTypeCounter(TypeCounter):
 		self._labels_dict = BranchTypeCounter.labels_dict 
 		self._mutype_shape = mutype_shape
 		self._all_mutypes, self._all_mutypes_ravel = self.sort_all_mutypes(mutype_shape)
+		self._equiprobable_mutypes_ravel = 0
+		self._impossible_mutypes_ravel = 0
 
 	@property
 	def mutype_shape(self):
@@ -415,6 +426,15 @@ class MutationTypeCounter(TypeCounter):
 	@property
 	def all_mutypes_ravel(self):
 		return self._all_mutypes_ravel
+
+	@property
+	def equiprobable_mutypes_ravel(self):
+		return self._equiprobable_mutypes_ravel
+
+	@property
+	def impossible_mutypes(self):
+		return self._impossible_mutypes
+	
 				
 	def sort_all_mutypes(self, mutype_shape):
 		all_mutypes_unsorted = []

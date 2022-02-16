@@ -110,7 +110,6 @@ class gfEvaluatorMT:
 		else:
 			final_result = np.zeros(self.final_result_shape, dtype=np.float64)
 			final_result.flat[self.all_mutypes_ravel] = no_marginals
-
 		return gfmuts.adjust_marginals_array(final_result, self.num_branchtypes)
 
 	def adjust_parameters(self, var, factor=1e-5):
