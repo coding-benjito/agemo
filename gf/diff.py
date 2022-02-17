@@ -58,16 +58,16 @@ def simple_dot_product(A, B):
 
 #derivatives base functions:
 @numba.njit([
-	numba.float64(numba.uint8[:], numba.float64[:]),
-	numba.float64(numba.uint16[:], numba.float64[:]),
-	numba.float64(numba.uint32[:], numba.float64[:]),
-	numba.float64(numba.uint64[:], numba.float64[:]),
-	numba.float64(numba.int8[:], numba.float64[:]),
-	numba.float64(numba.int16[:], numba.float64[:]),
-	numba.float64(numba.int32[:], numba.float64[:]),
-	numba.float64(numba.int64[:], numba.float64[:]),
+	numba.float64(numba.uint8[:], numba.float64[:], numba.int64),
+	numba.float64(numba.uint16[:], numba.float64[:],numba.int64),
+	numba.float64(numba.uint32[:], numba.float64[:],numba.int64),
+	numba.float64(numba.uint64[:], numba.float64[:],numba.int64),
+	numba.float64(numba.int8[:], numba.float64[:],numba.int64),
+	numba.float64(numba.int16[:], numba.float64[:],numba.int64),
+	numba.float64(numba.int32[:], numba.float64[:],numba.int64),
+	numba.float64(numba.int64[:], numba.float64[:],numba.int64),
 	])
-def simple_dot_product_setback(A, B, setback=0):
+def simple_dot_product_setback(A, B, setback):
 	m = A.size
 	s = 0
 	for i in range(m - setback):
@@ -92,7 +92,7 @@ def taylor_coeff_inverse_polynomial(denom, var_array, diff_array, num_branchtype
 @numba.njit
 def taylor_coeff_inverse_polynomial_alt(denom, theta, diff_array, num_branchtypes, dot_product, mutypes_shape):
 	#of the form c/f(var_array)
-	diff_array = np.array(diff_array, dtype=np.uint8) # where marg should already be 0!!
+	#diff_array = np.array(diff_array, dtype=np.uint8) # where marg should already be 0!!
 	total_diff_count, fact_diff, nomd = 0, 1, 1
 	for idx in range(num_branchtypes, 0, -1):
 		diff_value = diff_array[-idx]%(mutypes_shape[-idx] - 1)
@@ -122,7 +122,7 @@ def taylor_coeff_exponential(c, f, exponential_part, diff_array, num_branchtypes
 def taylor_coeff_exponential_alt(c, f, dot_product, diff_array, num_branchtypes, theta, mutypes_shape):
 	#of the form e**(c*f(var_array))
 	#degree of f max 1 for each var
-	diff_array = np.array(diff_array, dtype=np.uint8) #make sure this can be omitted!
+	#diff_array = np.array(diff_array, dtype=np.uint8) #make sure this can be omitted!
 	p1, fact, sum_diff_array = 1, 1, 0
 	for idx in range(num_branchtypes, 0, -1):
 		diff_value = diff_array[-idx]%(mutypes_shape[-idx] - 1)
@@ -175,7 +175,8 @@ def series_quotient(arr1, arr2, subsetdict):
 	return result
 
 #making subsetdict
-@numba.jit(numba.int64(numba.int64[:], numba.int64[:]))
+@numba.jit([numba.int64(numba.int64[:], numba.int64[:]),
+	numba.int64(numba.uint64[:], numba.uint64[:])])
 def ravel_multi_index(multi_index, shape):
 	shape_prod = np.cumprod(shape[:0:-1])[::-1]
 	return np.sum(shape_prod * multi_index[:-1]) + multi_index[-1]
@@ -251,7 +252,7 @@ def product_subsetdict_marg_alt(shape, all_mutypes):
 				reset_value[i] = v
 			else:
 				temp_size*=mutype[i]+1
-		temp = np.zeros(temp_size, dtype=np.uint64)
+		temp = np.zeros(temp_size, dtype=np.int64)
 
 		for i, r in enumerate(return_smaller_than_idx_marg(reset_value, mutype, np.array(shape, dtype=np.uint64))):
 			temp[i] = r
@@ -321,7 +322,8 @@ def all_polynomials(eq_matrix, shape, var_array, num_branchtypes, mutype_shape):
 def all_polynomials_alt(eq_matrix, size, var_array, num_branchtypes, mutype_array, mutype_shape):
 	num_equations = eq_matrix.shape[0]
 	if num_equations==0:
-		return np.array([], dtype=np.float64)
+		#return np.array([], dtype=np.float64)
+		return np.zeros((num_equations, size), dtype=np.float64)
 	else:
 		result = np.zeros((num_equations, size))
 		theta = var_array[-1]
@@ -366,6 +368,7 @@ def product_pairwise_diff_inverse_polynomial(polynomial_f, shape, combos, subset
 	if shape[0] <= 1:
 		return polynomial_f
 	else:
+		assert polynomial_f.ndim >= 2
 		result = np.zeros(shape, dtype=np.float64)
 		for idx, combo in enumerate(combos):
 			#combo needs to be a np.array
